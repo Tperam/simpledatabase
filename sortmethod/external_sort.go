@@ -2,7 +2,6 @@ package sortmethod
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -42,11 +41,13 @@ type ExternalSortInfo struct {
 // NewExternalSortInfo 创建一个ExternalSortInfo，附带默认配置
 func NewExternalSortInfo() *ExternalSortInfo {
 	return &ExternalSortInfo{
-		MaxIONum:     9,
-		SrcDir:       "./data",
-		TmpDir:       "./tmp",
-		TargetFile:   "./data/finalData.dat",
-		DataCacheLen: 2,
+		MaxIONum:        9,
+		SrcDir:          "./data",
+		TmpDir:          "./tmp",
+		TargetFile:      "./data/finalData.dat",
+		DataCacheLen:    2,
+		wg:              &sync.WaitGroup{},
+		isNeedNextMerge: true,
 	}
 }
 
@@ -62,7 +63,6 @@ func (esi *ExternalSortInfo) Run(re *regexp.Regexp) {
 	}
 	isNeedNextMerge, fileNameArr := esi.singleFileMerge(fileNameArr)
 	for isNeedNextMerge {
-		fmt.Println()
 		isNeedNextMerge, fileNameArr = esi.singleFileMerge(fileNameArr)
 	}
 }
@@ -80,13 +80,14 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 		var unserializeData []chan *model.Data
 		// 读取数据方式
 		for j := uint8(0); j < esi.MaxIONum && i < len(fileNameArr); j++ {
-			fsArr[j], _ = os.OpenFile(fileNameArr[i], os.O_RDONLY, 0666)
+			fs, _ := os.OpenFile(fileNameArr[i], os.O_RDONLY, 0666)
+			fsArr = append(fsArr, fs)
 			serializeData := make(chan string, esi.DataCacheLen)
 			unserializeData = append(unserializeData, make(chan *model.Data, esi.DataCacheLen))
 			esi.wg.Add(2)
 			// 创建一个 bufio.Reader
 			// 创建一个带缓存的 channel
-			go esi.readData(bufio.NewReader(fsArr[j]), serializeData)
+			go esi.readData(bufio.NewReader(fs), serializeData)
 			go esi.unserializeData(serializeData, unserializeData[j])
 			i++
 		}
@@ -94,23 +95,25 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 		var data []*model.Data
 		// 有效下标
 		var availableDataIndex []uint8
-		// 读取一遍
+		// 读取一遍数据到 data中
 		for j := uint8(0); j < uint8(len(unserializeData)); j++ {
 			singleData, ok := <-unserializeData[j]
 			if !ok {
 				continue
 			}
-			data[j] = singleData
+			data = append(data, singleData)
 			availableDataIndex = append(availableDataIndex, j)
 		}
+		// 输出文件
 		var outputFile *os.File
-		// 开始排序，并写出数据
+		// 判断当前是否是最后一次进行归并
 		if esi.isNeedNextMerge {
 			// 使用 time.Now().UnixNano() 假设生成唯一数
 			id := strconv.FormatInt(time.Now().UnixNano(), 10)
-
+			// 记录文件名
 			outputFileName := path.Join(esi.TmpDir, "dataExternal"+id+".txt")
 			outputFileNameArr = append(outputFileNameArr, outputFileName)
+			// 获取 io.writer
 			fi, err := os.OpenFile(outputFileName, os.O_WRONLY, 0666)
 			if err != nil {
 				fi, _ = os.Create(outputFileName)
@@ -126,6 +129,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 		}
 
 		bw := bufio.NewWriter(outputFile)
+		// 开始排序，并写出数据
 		for len(availableDataIndex) > 0 {
 			// 记录 数组有效索引
 			min := 0
@@ -162,12 +166,14 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 
 // readData 读取数据
 func (esi *ExternalSortInfo) readData(br *bufio.Reader, data chan<- string) {
-	line, err := br.ReadString('\n')
-	if err == io.EOF {
-		close(data)
+	for {
+		line, err := br.ReadString('\n')
+		if err == io.EOF {
+			close(data)
+			break
+		}
+		data <- line
 	}
-	data <- line
-
 	esi.wg.Done()
 }
 
