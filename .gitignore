@@ -2,3 +2,6 @@ data
 data*.txt
 .vscode
 dist
+*.dat
+torch.svg
+tmp

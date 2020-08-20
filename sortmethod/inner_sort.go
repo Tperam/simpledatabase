@@ -24,10 +24,10 @@ import (
 //  - 读取到一定内存量时，我们对其进行排序。再将数据写出到不同的文件
 //  - 继续开始读取内存，直到将当前文件整个排序完成
 
-// InnerSortHandler 内排序结构体
+// InnerSortInfo 内排序结构体
 // 通过MaxMemorySize 管理内存
 // 通过ReadData 获取数据
-type InnerSortHandler struct {
+type InnerSortInfo struct {
 	MaxMemorySize   uint64
 	MemStats        *runtime.MemStats
 	Lock            *sync.RWMutex
@@ -46,9 +46,9 @@ const (
 	TB = GB * 1024
 )
 
-// NewInnerSortHandler 创建一个InnerSortHandler
-func NewInnerSortHandler() *InnerSortHandler {
-	return &InnerSortHandler{
+// NewInnerSortInfo 创建一个InnerSortInfo
+func NewInnerSortInfo() *InnerSortInfo {
+	return &InnerSortInfo{
 		MaxMemorySize: 100 * MB,
 		MemStats:      &runtime.MemStats{},
 		TargetDir:     "./data",
@@ -58,21 +58,21 @@ func NewInnerSortHandler() *InnerSortHandler {
 }
 
 // Run 用于将所有数据内排序
-func (ish *InnerSortHandler) Run(srcDir string, dataFileRe *regexp.Regexp) {
+func (isi *InnerSortInfo) Run(srcDir string, dataFileRe *regexp.Regexp) {
 	serializeData := make(chan string, 1000)
 	UnserializeData := make(chan *model.Data, 1000)
-	ish.wg.Add(4)
-	go ish.readData(serializeData, srcDir, dataFileRe)
-	go ish.handleUnserialize(serializeData, UnserializeData)
-	go ish.appendData(UnserializeData)
-	go ish.memoryManage()
-	ish.wg.Wait()
+	isi.wg.Add(4)
+	go isi.readData(serializeData, srcDir, dataFileRe)
+	go isi.handleUnserialize(serializeData, UnserializeData)
+	go isi.appendData(UnserializeData)
+	go isi.memoryManage()
+	isi.wg.Wait()
 }
 
 // SetMaxMemorySize 设置最大内存
 // 当前自定义中 B = bytes
 // eg "100KB" = 100 * 1024
-func (ish *InnerSortHandler) SetMaxMemorySize(size string) bool {
+func (isi *InnerSortInfo) SetMaxMemorySize(size string) bool {
 
 	size = strings.ToLower(strings.TrimSpace(size))
 
@@ -89,15 +89,15 @@ func (ish *InnerSortHandler) SetMaxMemorySize(size string) bool {
 
 	switch unit {
 	case "tb":
-		ish.MaxMemorySize = num * TB
+		isi.MaxMemorySize = num * TB
 	case "gb":
-		ish.MaxMemorySize = num * GB
+		isi.MaxMemorySize = num * GB
 	case "mb":
-		ish.MaxMemorySize = num * MB
+		isi.MaxMemorySize = num * MB
 	case "kb":
-		ish.MaxMemorySize = num * KB
+		isi.MaxMemorySize = num * KB
 	case "b":
-		ish.MaxMemorySize = num * B
+		isi.MaxMemorySize = num * B
 	default:
 		fmt.Println("使用了未定义的类型,请以 kb, mb, gb, tb, b结尾")
 		return false
@@ -109,7 +109,7 @@ func (ish *InnerSortHandler) SetMaxMemorySize(size string) bool {
 // readData 读取data数据
 // data 输出管道，用于往内存中添加数据
 // srcDir 文件路径
-func (ish *InnerSortHandler) readData(data chan<- string, srcDir string, re *regexp.Regexp) {
+func (isi *InnerSortInfo) readData(data chan<- string, srcDir string, re *regexp.Regexp) {
 	fiArr, _ := ioutil.ReadDir(srcDir)
 	for _, fi := range fiArr {
 
@@ -119,7 +119,7 @@ func (ish *InnerSortHandler) readData(data chan<- string, srcDir string, re *reg
 
 		file, err := os.OpenFile(path.Join(srcDir, fi.Name()), os.O_RDONLY, 0666)
 		if err != nil {
-			ish.wg.Done()
+			isi.wg.Done()
 			return
 		}
 
@@ -134,53 +134,53 @@ func (ish *InnerSortHandler) readData(data chan<- string, srcDir string, re *reg
 		}
 	}
 	close(data)
-	ish.wg.Done()
+	isi.wg.Done()
 }
 
 // handleUnserialize 管理反序列化线程
-func (ish *InnerSortHandler) handleUnserialize(data <-chan string, unserializeData chan<- *model.Data) {
+func (isi *InnerSortInfo) handleUnserialize(data <-chan string, unserializeData chan<- *model.Data) {
 	// 开启两个反序列化线程
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ctx2, cancel2 := context.WithCancel(context.Background())
 
-	ish.wg.Add(1)
-	ish.unserializeData(cancel1, data, unserializeData)
-	ish.wg.Add(1)
-	ish.unserializeData(cancel2, data, unserializeData)
+	isi.wg.Add(1)
+	isi.unserializeData(cancel1, data, unserializeData)
+	isi.wg.Add(1)
+	isi.unserializeData(cancel2, data, unserializeData)
 
 	<-ctx1.Done()
 	<-ctx2.Done()
 	close(unserializeData)
-	ish.wg.Done()
+	isi.wg.Done()
 
 }
 
 // unserializeData 反序列化操作
-func (ish *InnerSortHandler) unserializeData(cancel context.CancelFunc, data <-chan string, unserializeData chan<- *model.Data) {
+func (isi *InnerSortInfo) unserializeData(cancel context.CancelFunc, data <-chan string, unserializeData chan<- *model.Data) {
 	for x := range data {
-		ish.Lock.RLock()
+		isi.Lock.RLock()
 		unserializeData <- model.UnSerialize(x)
-		ish.Lock.RUnlock()
+		isi.Lock.RUnlock()
 	}
 	cancel()
-	ish.wg.Done()
+	isi.wg.Done()
 }
 
 // 添加data到结构体中
-func (ish *InnerSortHandler) appendData(unserializeData <-chan *model.Data) {
+func (isi *InnerSortInfo) appendData(unserializeData <-chan *model.Data) {
 	for x := range unserializeData {
-		ish.data = append(ish.data, x)
+		isi.data = append(isi.data, x)
 	}
-	ish.finshAppendData = true
-	ish.wg.Done()
+	isi.finshAppendData = true
+	isi.wg.Done()
 }
 
 // saveCurrentDataToFile 将当前排序结果保存到文件
-func (ish *InnerSortHandler) saveCurrentDataToFile(filename string) {
+func (isi *InnerSortInfo) saveCurrentDataToFile(filename string) {
 
-	length := len(ish.data)
+	length := len(isi.data)
 	// 排序
-	algorithm.QuickSort(ish.data, 0, length-1)
+	algorithm.QuickSort(isi.data, 0, length-1)
 	// 排序后io写出
 	file, err := os.OpenFile(filename, os.O_WRONLY, 0666)
 	if err != nil {
@@ -190,7 +190,7 @@ func (ish *InnerSortHandler) saveCurrentDataToFile(filename string) {
 	bw := bufio.NewWriter(file)
 
 	for i := 0; i < length; i++ {
-		bw.WriteString(ish.data[i].Serialize())
+		bw.WriteString(isi.data[i].Serialize())
 	}
 	bw.Flush()
 
@@ -199,21 +199,21 @@ func (ish *InnerSortHandler) saveCurrentDataToFile(filename string) {
 // memoryManage 内存管理
 // 原理，每秒读取一次内存信息
 // 在读取数据时进行判断。超出则停止读取，直到下一次可运行
-func (ish *InnerSortHandler) memoryManage() {
+func (isi *InnerSortInfo) memoryManage() {
 	var i int
-	for !ish.finshAppendData {
-		runtime.ReadMemStats(ish.MemStats)
+	for !isi.finshAppendData {
+		runtime.ReadMemStats(isi.MemStats)
 
-		if ish.MemStats.Alloc > ish.MaxMemorySize {
-			ish.Lock.Lock()
-			ish.saveCurrentDataToFile(path.Join(ish.TargetDir, "data"+strconv.Itoa(i)+".txt"))
-			ish.data = make([]*model.Data, 0, len(ish.data))
-			ish.Lock.Unlock()
+		if isi.MemStats.Alloc > isi.MaxMemorySize {
+			isi.Lock.Lock()
+			isi.saveCurrentDataToFile(path.Join(isi.TargetDir, "data"+strconv.Itoa(i)+".txt"))
+			isi.data = make([]*model.Data, 0, len(isi.data))
+			isi.Lock.Unlock()
 			i++
 		}
 
 		time.Sleep(1 * time.Second)
 	}
-	ish.saveCurrentDataToFile(path.Join(ish.TargetDir, "data"+strconv.Itoa(i)+".txt"))
-	ish.wg.Done()
+	isi.saveCurrentDataToFile(path.Join(isi.TargetDir, "data"+strconv.Itoa(i)+".txt"))
+	isi.wg.Done()
 }
