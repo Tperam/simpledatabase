@@ -62,6 +62,14 @@
 - 提高软件速度
     - 对于某些特殊数据，在第一阶段的排序中使用基数排序。
     - 压缩输入输出文件和临时文件。
+### 遇到的坑
+
+#### []byte字节数组在某种情况下数值发生改变
+最开始我以为是`unsafe.Pointer`的问题。直到我删除了那部分，并使用`[]byte`进行读取到内存中，将内存中的[]byte写入到新的文本。发现数据会发生变化。
+
+曾经我们使用`unsafe.Pointer`将`[]byte`类型转换成`string`类型，之前出现问题的原因也是因为`[]byte`中发生变化。由于我们当时是使用`unsafe.Pointer`当前原理为，直接将`[]byte`中的值使用`string`去解析。所以当我们`[]byte`发生变化，`string`的值也会发生变化。由于我们现在使用`string()`将`[]byte`转换成字符串，当前操作会复制一份在内存中的值，并将其进行转换，所以当前操作会消耗更大的内存。
+
+当前我们需要找出什么原因导致的`[]byte`数组中的值发生变化
 
 ### 学习内容
 假如需要完成以上的内容，并且在性能上有一定的要求，我们就需要用到一些知识
@@ -69,6 +77,40 @@
 #### io
 #### 内存管理
 #### []byte转string的最优方式
+
+#### 字符串切割以及合并的替代方案
+寻找以及理解，并且解决`string.Split`与`fmt.Sprintf`的效率问题以及内存占用问题。
+> [高效截取字符串](https://juejin.im/post/6844903984243671048)
+发现当前并不是我们想要的效果，我们从`string`的原理与`unsafe.Pointer`开始了解。看看有没有什么我们能替换的内容
+##### 发现问题
+由于 string是一个不可改变的字节。所以我们在切割的时候必定会导致从内存复制一份进行切割。
+##### 解决方式
+回顾我们的需求，我们可以使用`ReadLine()([]byte,bool,error)` 读取字节，对字节进行判断，由于我们只需要获取`data.Num`,所以我们可以通过遍历只截取第一个`,`前的数值将其转换成`int`类型，然后保留当前整个[]byte。当内存超出时，我们进行排序。最终直接写出 []byte。
+相比于以往。从文件中读取 `[]byte` 转换成 `string` 在通过程序 切割数据变成 `[]string` 转换成data中各自需要的内容 经过排序后在 转换成 `string` 写出 在内部再转换成 `[]byte`保存到文件
+当前操作为。从文件中读取 `[]byte` 获取特定值转换成 `int` 保留原`[]byte`，再通过程序对当前的`int`进行排序，最终把`[]byte`写出文件
+我们减少了`string`的生成，减少了`gc`的压力，同时降低了cpu的操作
+
+`BenchmarkProduceDataStrconv`与`BenchmarkProduceDataFmtSprinf`的不同点为
+一个使用`strconv.Itoa(rand.Int()) + "," + getName() + "," + getSex() + "\n"`
+一个使用`fmt.Sprintf("%d,%s,%s",rand.Int(),getName(),getSex())`
+```shell
+goos: linux
+goarch: amd64
+pkg: test
+BenchmarkProduceDataStrconv-6     	1000000000	         0.108 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProduceDataFmtSprinf-6   	1000000000	         0.124 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	test	2.552s
+```
+单次生成`100000`数据，内存使用:
+```markdown
+strconv.Itoa -> m.Alloc=442704 m.Sys=74269696   0.116s
+fmt.Sprintf -> m.Alloc=4160384 m.Sys=74007552 0.139s
+```
+由此可以得出：使用`strconv.Itoa`转换int，并且使用`+`与其他字符串进行拼接的效率是较高的
+
+
+
 #### 在什么时候用什么排序
 #### 二分查找法
 #### 硬盘索引如何实现

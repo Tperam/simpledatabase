@@ -15,7 +15,7 @@ import (
 
 func main() {
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
+		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
 	}()
 
 	var dataLen int64 = 1000000000
@@ -27,7 +27,7 @@ func main() {
 
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
-		go SaveDataToFile(&wg, data, "./data"+strconv.Itoa(i)+".txt")
+		go SaveDataToFile(&wg, data, "./data/data"+strconv.Itoa(i)+".txt")
 	}
 
 	wg.Wait()

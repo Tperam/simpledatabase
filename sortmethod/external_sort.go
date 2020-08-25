@@ -54,7 +54,6 @@ func NewExternalSortInfo() *ExternalSortInfo {
 // Run 开始外排序
 func (esi *ExternalSortInfo) Run(re *regexp.Regexp) {
 	fiArr, _ := ioutil.ReadDir(esi.SrcDir)
-	// 控制开启多少个io
 	var fileNameArr []string
 	for _, fi := range fiArr {
 		if re.MatchString(fi.Name()) {
