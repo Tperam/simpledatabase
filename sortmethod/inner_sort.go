@@ -59,7 +59,7 @@ func NewInnerSortInfo() *InnerSortInfo {
 
 // Run 用于将所有数据内排序
 func (isi *InnerSortInfo) Run(srcDir string, dataFileRe *regexp.Regexp) {
-	serializeData := make(chan string, 1000)
+	serializeData := make(chan []byte, 1000)
 	UnserializeData := make(chan *model.Data, 1000)
 	isi.wg.Add(4)
 	go isi.readData(serializeData, srcDir, dataFileRe)
@@ -109,7 +109,7 @@ func (isi *InnerSortInfo) SetMaxMemorySize(size string) bool {
 // readData 读取data数据
 // data 输出管道，用于往内存中添加数据
 // srcDir 文件路径
-func (isi *InnerSortInfo) readData(data chan<- string, srcDir string, re *regexp.Regexp) {
+func (isi *InnerSortInfo) readData(data chan<- []byte, srcDir string, re *regexp.Regexp) {
 	fiArr, _ := ioutil.ReadDir(srcDir)
 	for _, fi := range fiArr {
 
@@ -126,11 +126,13 @@ func (isi *InnerSortInfo) readData(data chan<- string, srcDir string, re *regexp
 		br := bufio.NewReader(file)
 
 		for {
-			line, err := br.ReadString('\n')
+			line, _, err := br.ReadLine()
 			if err == io.EOF {
 				break
 			}
-			data <- line
+			copyLine := make([]byte, len(line))
+			copy(copyLine, line)
+			data <- copyLine
 		}
 	}
 	close(data)
@@ -138,7 +140,7 @@ func (isi *InnerSortInfo) readData(data chan<- string, srcDir string, re *regexp
 }
 
 // handleUnserialize 管理反序列化线程
-func (isi *InnerSortInfo) handleUnserialize(data <-chan string, unserializeData chan<- *model.Data) {
+func (isi *InnerSortInfo) handleUnserialize(data <-chan []byte, unserializeData chan<- *model.Data) {
 	// 开启两个反序列化线程
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	ctx2, cancel2 := context.WithCancel(context.Background())
@@ -156,11 +158,9 @@ func (isi *InnerSortInfo) handleUnserialize(data <-chan string, unserializeData 
 }
 
 // unserializeData 反序列化操作
-func (isi *InnerSortInfo) unserializeData(cancel context.CancelFunc, data <-chan string, unserializeData chan<- *model.Data) {
+func (isi *InnerSortInfo) unserializeData(cancel context.CancelFunc, data <-chan []byte, unserializeData chan<- *model.Data) {
 	for x := range data {
-		isi.Lock.RLock()
 		unserializeData <- model.UnSerialize(x)
-		isi.Lock.RUnlock()
 	}
 	cancel()
 	isi.wg.Done()
@@ -169,7 +169,9 @@ func (isi *InnerSortInfo) unserializeData(cancel context.CancelFunc, data <-chan
 // 添加data到结构体中
 func (isi *InnerSortInfo) appendData(unserializeData <-chan *model.Data) {
 	for x := range unserializeData {
+		isi.Lock.RLock()
 		isi.data = append(isi.data, x)
+		isi.Lock.RUnlock()
 	}
 	isi.finshAppendData = true
 	isi.wg.Done()
@@ -188,9 +190,10 @@ func (isi *InnerSortInfo) saveCurrentDataToFile(filename string) {
 	}
 
 	bw := bufio.NewWriter(file)
-
+	newLineChar := []byte("\n")
 	for i := 0; i < length; i++ {
-		bw.WriteString(isi.data[i].Serialize())
+		bw.Write(isi.data[i].Serialize())
+		bw.Write(newLineChar)
 	}
 	bw.Flush()
 
@@ -202,6 +205,7 @@ func (isi *InnerSortInfo) saveCurrentDataToFile(filename string) {
 func (isi *InnerSortInfo) memoryManage() {
 	var i int
 	for !isi.finshAppendData {
+		runtime.GC()
 		runtime.ReadMemStats(isi.MemStats)
 
 		if isi.MemStats.Alloc > isi.MaxMemorySize {

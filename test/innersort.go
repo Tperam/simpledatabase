@@ -15,7 +15,7 @@ func main() {
 
 	isi := sortmethod.NewInnerSortInfo()
 	isi.SetMaxMemorySize("1GB")
-	isi.TargetDir = "./tempdata/"
+	isi.TargetDir = "./tmp/"
 	re, _ := regexp.Compile("^data\\d+\\.txt$")
-	isi.Run("./", re)
+	isi.Run("./tmp", re)
 }

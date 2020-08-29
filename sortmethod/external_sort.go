@@ -42,7 +42,7 @@ type ExternalSortInfo struct {
 func NewExternalSortInfo() *ExternalSortInfo {
 	return &ExternalSortInfo{
 		MaxIONum:        9,
-		SrcDir:          "./data",
+		SrcDir:          "./tmp",
 		TmpDir:          "./tmp",
 		TargetFile:      "./data/finalData.dat",
 		DataCacheLen:    2,
@@ -81,7 +81,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 		for j := uint8(0); j < esi.MaxIONum && i < len(fileNameArr); j++ {
 			fs, _ := os.OpenFile(fileNameArr[i], os.O_RDONLY, 0666)
 			fsArr = append(fsArr, fs)
-			serializeData := make(chan string, esi.DataCacheLen)
+			serializeData := make(chan []byte, esi.DataCacheLen)
 			unserializeData = append(unserializeData, make(chan *model.Data, esi.DataCacheLen))
 			esi.wg.Add(2)
 			// 创建一个 bufio.Reader
@@ -129,6 +129,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 
 		bw := bufio.NewWriter(outputFile)
 		// 开始排序，并写出数据
+		newLineChar := []byte("\n")
 		for len(availableDataIndex) > 0 {
 			// 记录 数组有效索引
 			min := 0
@@ -137,7 +138,8 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 					min = j
 				}
 			}
-			bw.WriteString(data[availableDataIndex[min]].Serialize())
+			bw.Write(data[availableDataIndex[min]].Serialize())
+			bw.Write(newLineChar)
 			// 从channel中取值替换当前映射数组的值
 			singleData, ok := <-unserializeData[availableDataIndex[min]]
 			// 当前设计，当无法获取出数据之后。我们将有效数组下标中min置为空
@@ -164,9 +166,9 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 }
 
 // readData 读取数据
-func (esi *ExternalSortInfo) readData(br *bufio.Reader, data chan<- string) {
+func (esi *ExternalSortInfo) readData(br *bufio.Reader, data chan<- []byte) {
 	for {
-		line, err := br.ReadString('\n')
+		line, _, err := br.ReadLine()
 		if err == io.EOF {
 			close(data)
 			break
@@ -176,7 +178,7 @@ func (esi *ExternalSortInfo) readData(br *bufio.Reader, data chan<- string) {
 	esi.wg.Done()
 }
 
-func (esi *ExternalSortInfo) unserializeData(serializeData <-chan string, unserializeData chan<- *model.Data) {
+func (esi *ExternalSortInfo) unserializeData(serializeData <-chan []byte, unserializeData chan<- *model.Data) {
 	for x := range serializeData {
 		unserializeData <- model.UnSerialize(x)
 	}
