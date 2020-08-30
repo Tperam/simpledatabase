@@ -77,7 +77,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 	for i := 0; i < len(fileNameArr); {
 		var fsArr []*os.File
 		var unserializeData []chan *model.Data
-		// 读取数据方式
+		// 读取数据
 		for j := uint8(0); j < esi.MaxIONum && i < len(fileNameArr); j++ {
 			fs, _ := os.OpenFile(fileNameArr[i], os.O_RDONLY, 0666)
 			fsArr = append(fsArr, fs)
@@ -90,6 +90,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 			go esi.unserializeData(serializeData, unserializeData[j])
 			i++
 		}
+		// 取出数据
 		// 用于存放从io中取出的数据
 		var data []*model.Data
 		// 有效下标
@@ -148,7 +149,6 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 				// 删除当前下标
 				availableDataIndex = append(availableDataIndex[:min], availableDataIndex[min+1:]...)
 			} else {
-
 				data[availableDataIndex[min]] = singleData
 			}
 
@@ -162,7 +162,7 @@ func (esi *ExternalSortInfo) singleFileMerge(fileNameArr []string) (bool, []stri
 			fs.Close()
 		}
 	}
-	return esi.isNeedNextMerge, fileNameArr
+	return esi.isNeedNextMerge, outputFileNameArr
 }
 
 // readData 读取数据
@@ -173,7 +173,9 @@ func (esi *ExternalSortInfo) readData(br *bufio.Reader, data chan<- []byte) {
 			close(data)
 			break
 		}
-		data <- line
+		copyLine := make([]byte, len(line))
+		copy(copyLine, line)
+		data <- copyLine
 	}
 	esi.wg.Done()
 }

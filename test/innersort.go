@@ -17,5 +17,5 @@ func main() {
 	isi.SetMaxMemorySize("1GB")
 	isi.TargetDir = "./tmp/"
 	re, _ := regexp.Compile("^data\\d+\\.txt$")
-	isi.Run("./tmp", re)
+	isi.Run("./data", re)
 }

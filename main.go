@@ -15,7 +15,7 @@ func main() {
 	}()
 
 	esi := sortmethod.NewExternalSortInfo()
-	esi.SrcDir = "./data"
+	esi.SrcDir = "./tmp"
 	esi.TmpDir = "./tmp"
 	esi.TargetFile = "./finaldata.dat"
 	re, _ := regexp.Compile("data\\d+\\.txt$")
